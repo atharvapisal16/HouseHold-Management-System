@@ -1,10 +1,10 @@
-# 💰 Smart Expense Manager
+# 💰  Household Management System
 
 A robust, Python-based desktop application designed to streamline financial tracking for personal, family, and business needs. This application features a modern GUI, secure authentication, and powerful analytics to visualize spending habits.
 
 ## 📖 Overview
 
-The **Smart Expense Manager** (also known as Household Management System) is a standalone application built with Python and Tkinter. It replaces manual spreadsheets with an intuitive interface that allows users to log expenses, categorize transactions, and view real-time insights through interactive charts. It supports multiple distinct sections (Personal, Family, Business) to keep different financial aspects organized but accessible under one account.
+The **Household Management System** (also known as Smart Expense Manager) is a standalone application built with Python and Tkinter. It replaces manual spreadsheets with an intuitive interface that allows users to log expenses, categorize transactions, and view real-time insights through interactive charts. It supports multiple distinct sections (Personal, Family, Business) to keep different financial aspects organized but accessible under one account.
 
 ## ✨ Key Features
 
@@ -45,4 +45,42 @@ The **Smart Expense Manager** (also known as Household Management System) is a s
 *   **Visualization**: Matplotlib
 *   **Security**: Hashlib (SHA-256)
 
+## 🚀 Installation
+
+Follow these steps to get a local copy up and running.
+
+### Prerequisites
+
+*   Python 3.7 or higher installed on your system.
+
+### Steps
+
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/yourusername/expense-manager.git
+    ```
+
+2.  **Navigate to the Directory**
+    ```bash
+    cd expense-manager
+    ```
+
+3.  **Install Dependencies**
+    This project requires `pandas` and `matplotlib`.
+    ```bash
+    pip install pandas matplotlib
+    ```
+    *(Note: Tkinter usually comes pre-installed with Python. If not, you may need to install `python-tk` via your OS package manager).*
+
+4.  **Run the Application**
+    ```bash
+    python Project.py
+    ```
+
+    **⚖️ License
+This project is licensed under the MIT License.
+Free to use, modify, and distribute with attribution.
+
+👨‍💻 Author
+Atharva Pisal**
 
