@@ -77,10 +77,10 @@ Follow these steps to get a local copy up and running.
     python Project.py
     ```
 
-    **⚖️ License
+   # ⚖️ License
 This project is licensed under the MIT License.
 Free to use, modify, and distribute with attribution.
 
-👨‍💻 Author
-Atharva Pisal**
+# 👨‍💻 Author
+**Atharva Pisal**
 
