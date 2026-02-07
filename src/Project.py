@@ -630,6 +630,38 @@ class Analyzer:
             by_day[e.date] += e.amount
         return sorted(by_day.items(), key=lambda x: x[0])
 
+
+class BudgetManager:
+    def __init__(self, username: str):
+        self.filepath = f"budgets_{username}.json"
+
+    def load(self) -> Dict[str, float]:
+        budgets = {key: 0.0 for key in MultiFileStorage.SECTIONS.keys()}
+        if not os.path.exists(self.filepath):
+            return budgets
+
+        try:
+            with open(self.filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError, ValueError):
+            return budgets
+
+        if not isinstance(data, dict):
+            return budgets
+
+        for key in budgets.keys():
+            try:
+                budgets[key] = float(data.get(key, 0.0))
+            except (TypeError, ValueError):
+                budgets[key] = 0.0
+
+        return budgets
+
+    def save(self, budgets: Dict[str, float]) -> None:
+        payload = {key: float(budgets.get(key, 0.0)) for key in MultiFileStorage.SECTIONS.keys()}
+        with open(self.filepath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
 # Bulk Import Window now integrated in Personal Analytics NAV Bar under Category Stats
 
 # -----------------------------
@@ -1019,6 +1051,12 @@ class ExpenseApp(tk.Tk):
         self.user_data = user_data
         self.auth_manager = AuthManager()
         self.username = user_data['username']
+        self.budget_manager = BudgetManager(self.username)
+        self.budgets = self.budget_manager.load()
+        self.budget_vars = {
+            key: tk.StringVar(value=self._format_budget_entry(self.budgets.get(key, 0.0)))
+            for key in MultiFileStorage.SECTIONS.keys()
+        }
         
         self.title(f"💰 Expense Manager - Welcome {user_data['full_name']} 👋")
         self.geometry("1800x1000")
@@ -1086,6 +1124,7 @@ class ExpenseApp(tk.Tk):
         right_panel = ttk.Frame(content_frame)
         right_panel.pack(side="right", fill="y", padx=(10, 0))
 
+        self._build_budget_controls(right_panel)
         self._build_summary(right_panel)
 
     def _build_section_tabs(self, parent):
@@ -1432,11 +1471,61 @@ class ExpenseApp(tk.Tk):
         
         self.tree.bind("<<TreeviewSelect>>", self._on_select_row)
 
+    def _build_budget_controls(self, parent):
+        self.budget_frame = ttk.LabelFrame(parent, text="💳 Budget Management", padding=12)
+        self.budget_frame.pack(fill="x", pady=(0, 10))
+
+        row = 0
+        for section_key, info in MultiFileStorage.SECTIONS.items():
+            ttk.Label(self.budget_frame, text=f"{info['emoji']} {info['label']}").grid(
+                row=row, column=0, sticky="w", padx=(0, 8), pady=3
+            )
+            entry = ttk.Entry(self.budget_frame, textvariable=self.budget_vars[section_key], width=14)
+            entry.grid(row=row, column=1, sticky="w", pady=3)
+            ttk.Label(self.budget_frame, text="₹").grid(row=row, column=2, sticky="w", padx=(6, 0))
+            row += 1
+
+        ttk.Button(self.budget_frame, text="💾 Save Budgets", command=self._on_save_budgets).grid(
+            row=row, column=0, columnspan=3, pady=(8, 0), sticky="ew"
+        )
+
+        for i in range(3):
+            self.budget_frame.grid_columnconfigure(i, weight=1)
+
+    def _format_budget_entry(self, value: float) -> str:
+        return f"{value:.2f}" if value else ""
+
+    def _parse_budget_value(self, value: str) -> float:
+        cleaned = value.strip().replace(",", "")
+        if not cleaned:
+            return 0.0
+        amount = float(cleaned)
+        if amount < 0:
+            raise ValueError("Budget cannot be negative")
+        return amount
+
+    def _on_save_budgets(self):
+        updated = {}
+        try:
+            for section_key in MultiFileStorage.SECTIONS.keys():
+                updated[section_key] = self._parse_budget_value(self.budget_vars[section_key].get())
+        except ValueError as exc:
+            messagebox.showerror("❌ Invalid Budget", str(exc))
+            return
+
+        self.budgets.update(updated)
+        self.budget_manager.save(self.budgets)
+        messagebox.showinfo("✅ Budgets Saved", "Your budget targets have been updated.")
+        self._refresh_summary()
+
     def _build_summary(self, parent):
         self.summary_frame = ttk.LabelFrame(parent, text="📊 Monthly Summary", padding=15)
         self.summary_frame.pack(fill="both", expand=True)
         
         self.summary_text = tk.Text(self.summary_frame, height=28, wrap="word", font=("Consolas", 11))
+        self.summary_text.tag_configure("status_good", foreground="#16a34a", font=("Consolas", 11, "bold"))
+        self.summary_text.tag_configure("status_bad", foreground="#dc2626", font=("Consolas", 11, "bold"))
+        self.summary_text.tag_configure("status_warn", foreground="#f59e0b", font=("Consolas", 11, "bold"))
         scrollbar = ttk.Scrollbar(self.summary_frame, orient="vertical", command=self.summary_text.yview)
         self.summary_text.configure(yscrollcommand=scrollbar.set)
         
@@ -1520,6 +1609,19 @@ class ExpenseApp(tk.Tk):
     def _on_add(self):
         if not self.current_manager:
             return
+        overspent_sections = self._get_overspent_sections()
+        if overspent_sections:
+            section_labels = ", ".join(overspent_sections)
+            if not messagebox.askyesno(
+                "⚠️ Budget Overspent",
+                f"Overspent in: {section_labels}. Add expense anyway?",
+            ):
+                return
+            if not messagebox.askyesno(
+                "⚠️ Confirm Add",
+                "This will increase your overspend. Confirm again to add.",
+            ):
+                return
         payload = self._validate_form()
         if payload:
             date, category, desc, amount = payload
@@ -1598,6 +1700,23 @@ class ExpenseApp(tk.Tk):
         self.desc_var.set("")
         self.amount_var.set("")
 
+    def _get_overspent_sections(self) -> List[str]:
+        overspent = []
+        for section_key, info in MultiFileStorage.SECTIONS.items():
+            budget = float(self.budgets.get(section_key, 0.0))
+            if budget <= 0:
+                continue
+            storage = self.multi_storage.get_storage(section_key)
+            expenses = storage.load_all()
+            monthly = [
+                e for e in expenses
+                if e.date.year == self.current_year and e.date.month == self.current_month
+            ]
+            total = sum(e.amount for e in monthly)
+            if total > budget:
+                overspent.append(info["label"])
+        return overspent
+
     def _refresh_table(self):
         for row in self.tree.get_children():
             self.tree.delete(row)
@@ -1612,24 +1731,57 @@ class ExpenseApp(tk.Tk):
         expenses = self.current_manager.filter_by_month(self.current_year, self.current_month)
         breakdown = Analyzer.category_breakdown(expenses)
         summary = Analyzer.monthly_summary(expenses)
-        
-        text = f"{self.section_info['emoji']} {self.section_info['label']} - MONTHLY ANALYSIS\n"
-        text += f"{self.current_year}-{self.current_month:02d} | " + "=" * 60 + "\n\n"
-        text += f"💰 Total Spent: ₹{summary['total']:,.2f}\n"
-        text += f"📅 Days Recorded: {len(set(e.date for e in expenses))}\n"
-        text += f"📈 Average/Day: ₹{summary['avg_per_day']:,.2f}\n\n"
-        
-        if breakdown:
-            text += "🏷️  CATEGORY BREAKDOWN (Top 10):\n"
-            text += "─" * 60 + "\n"
-            for cat, amt in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
-                pct = (amt/summary['total']*100) if summary['total'] > 0 else 0
-                text += f"{cat:<20} ₹{amt:>12,.2f} ({pct:>6.1f}%)\n"
-        else:
-            text += "No expenses recorded for this month.\n"
+        budget = float(self.budgets.get(self.current_section, 0.0))
         
         self.summary_text.delete("1.0", "end")
-        self.summary_text.insert("end", text)
+        line_no = 1
+
+        def add_line(line: str, tag: Optional[str] = None) -> None:
+            nonlocal line_no
+            self.summary_text.insert("end", line + "\n")
+            if tag and line:
+                start = f"{line_no}.0"
+                end = f"{line_no}.{len(line)}"
+                self.summary_text.tag_add(tag, start, end)
+            line_no += 1
+
+        add_line(f"{self.section_info['emoji']} {self.section_info['label']} - MONTHLY ANALYSIS")
+        add_line(f"{self.current_year}-{self.current_month:02d} | " + "=" * 60)
+        add_line("")
+
+        add_line("💳 BUDGET STATUS")
+        add_line("─" * 60)
+        if budget <= 0:
+            add_line("Target Budget: Not set")
+            add_line(f"Spent This Month: ₹{summary['total']:,.2f}")
+            add_line("Status: Set Budget", tag="status_warn")
+        else:
+            add_line(f"Target Budget: ₹{budget:,.2f}")
+            add_line(f"Spent This Month: ₹{summary['total']:,.2f}")
+            add_line(f"Utilization: ₹{summary['total']:,.2f} / ₹{budget:,.2f}")
+            if summary['total'] <= budget:
+                remaining = budget - summary['total']
+                add_line(f"Status: Underused | Safe to Spend: ₹{remaining:,.2f}", tag="status_good")
+            else:
+                deficit = summary['total'] - budget
+                add_line("Status: Overused", tag="status_bad")
+                add_line(f"Deficit: ₹{deficit:,.2f}", tag="status_bad")
+                add_line("Restriction: Overspent. Pause non-essential spending.", tag="status_bad")
+        add_line("")
+
+        add_line(f"💰 Total Spent: ₹{summary['total']:,.2f}")
+        add_line(f"📅 Days Recorded: {len(set(e.date for e in expenses))}")
+        add_line(f"📈 Average/Day: ₹{summary['avg_per_day']:,.2f}")
+        add_line("")
+
+        if breakdown:
+            add_line("🏷️  CATEGORY BREAKDOWN (Top 10):")
+            add_line("─" * 60)
+            for cat, amt in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
+                pct = (amt / summary['total'] * 100) if summary['total'] > 0 else 0
+                add_line(f"{cat:<20} ₹{amt:>12,.2f} ({pct:>6.1f}%)")
+        else:
+            add_line("No expenses recorded for this month.")
 
 
 # -----------------------------
